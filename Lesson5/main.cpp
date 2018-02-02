@@ -1,12 +1,11 @@
 #include <string>
 #include <iostream>
-#include <SDL.h>
-#include <SDL_ttf.h>
-#include "res_path.h"
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
 #include "cleanup.h"
 
 /*
- * Lesson 6: True Type Fonts with SDL_ttf
+ * Lesson 5: Clipping Sprite Sheets
  */
 //Screen attributes
 const int SCREEN_WIDTH  = 640;
@@ -19,6 +18,19 @@ const int SCREEN_HEIGHT = 480;
  */
 void logSDLError(std::ostream &os, const std::string &msg){
 	os << msg << " error: " << SDL_GetError() << std::endl;
+}
+/*
+ * Loads an image into a texture on the rendering device
+ * @param file The image file to load
+ * @param ren The renderer to load the texture onto
+ * @return the loaded texture, or nullptr if something went wrong.
+ */
+SDL_Texture* loadTexture(const std::string &file, SDL_Renderer *ren){
+	SDL_Texture *texture = IMG_LoadTexture(ren, file.c_str());
+	if (texture == nullptr){
+		logSDLError(std::cout, "LoadTexture");
+	}
+	return texture;
 }
 /*
  * Draw an SDL_Texture to an SDL_Renderer at some destination rect
@@ -56,41 +68,6 @@ void renderTexture(SDL_Texture *tex, SDL_Renderer *ren, int x, int y, SDL_Rect *
 	}
 	renderTexture(tex, ren, dst, clip);
 }
-/*
- * Render the message we want to display to a texture for drawing
- * @param message The message we want to display
- * @param fontFile The font we want to use to render the text
- * @param color The color we want the text to be
- * @param fontSize The size we want the font to be
- * @param renderer The renderer to load the texture in
- * @return An SDL_Texture containing the rendered message, or nullptr if something went wrong
- */
-SDL_Texture* renderText(const std::string &message, const std::string &fontFile, SDL_Color color,
-		int fontSize, SDL_Renderer *renderer)
-{
-	//Open the font
-	TTF_Font *font = TTF_OpenFont(fontFile.c_str(), fontSize);
-	if (font == nullptr){
-		logSDLError(std::cout, "TTF_OpenFont");
-		return nullptr;
-	}
-	//We need to first render to a surface as that's what TTF_RenderText returns, then
-	//load that surface into a texture
-	SDL_Surface *surf = TTF_RenderText_Blended(font, message.c_str(), color);
-	if (surf == nullptr){
-		TTF_CloseFont(font);
-		logSDLError(std::cout, "TTF_RenderText");
-		return nullptr;
-	}
-	SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surf);
-	if (texture == nullptr){
-		logSDLError(std::cout, "CreateTexture");
-	}
-	//Clean up the surface and font
-	SDL_FreeSurface(surf);
-	TTF_CloseFont(font);
-	return texture;
-}
 
 int main(int, char**){
 	//Start up SDL and make sure it went ok
@@ -98,19 +75,12 @@ int main(int, char**){
 		logSDLError(std::cout, "SDL_Init");
 		return 1;
 	}
-	//Also need to init SDL_ttf
-	if (TTF_Init() != 0){
-		logSDLError(std::cout, "TTF_Init");
-		SDL_Quit();
-		return 1;
-	}
 
 	//Setup our window and renderer
-	SDL_Window *window = SDL_CreateWindow("Lesson 6", SDL_WINDOWPOS_CENTERED,
+	SDL_Window *window = SDL_CreateWindow("Lesson 5", SDL_WINDOWPOS_CENTERED,
 			SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
 	if (window == nullptr){
 		logSDLError(std::cout, "CreateWindow");
-		TTF_Quit();
 		SDL_Quit();
 		return 1;
 	}
@@ -118,28 +88,36 @@ int main(int, char**){
 	if (renderer == nullptr){
 		logSDLError(std::cout, "CreateRenderer");
 		cleanup(window);
-		TTF_Quit();
 		SDL_Quit();
 		return 1;
 	}
 
-	const std::string resPath = getResourcePath("Lesson6");
-	//We'll render the string "TTF fonts are cool!" in white
-	//Color is in RGB format
-	SDL_Color color = { 255, 255, 255, 255 };
-	SDL_Texture *image = renderText("TTF fonts are cool!", resPath + "sample.ttf", color, 64, renderer);
+	SDL_Texture *image = loadTexture( "image.png", renderer);
 	if (image == nullptr){
 		cleanup(image, renderer, window);
-		TTF_Quit();
+		IMG_Quit();
 		SDL_Quit();
 		return 1;
 	}
 
-	//Get the texture w/h so we can center it in the screen
-	int iW, iH;
-	SDL_QueryTexture(image, NULL, NULL, &iW, &iH);
+	//iW and iH are the clip width and height
+	//We'll be drawing only clips so get a center position for the w/h of a clip
+	int iW = 100, iH = 100;
 	int x = SCREEN_WIDTH / 2 - iW / 2;
 	int y = SCREEN_HEIGHT / 2 - iH / 2;
+
+	//Setup the clips for our image
+	SDL_Rect clips[4];
+	//Since our clips our uniform in size we can generate a list of their
+	//positions using some math (the specifics of this are covered in the lesson)
+	for (int i = 0; i < 4; ++i){
+		clips[i].x = i / 2 * iW;
+		clips[i].y = i % 2 * iH;
+		clips[i].w = iW;
+		clips[i].h = iH;
+	}
+	//Specify a default clip to start with
+	int useClip = 0;
 
 	SDL_Event e;
 	bool quit = false;
@@ -149,21 +127,44 @@ int main(int, char**){
 			if (e.type == SDL_QUIT){
 				quit = true;
 			}
-			if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE){
-				quit = true;
+			//Use number input to select which clip should be drawn
+			if (e.type == SDL_KEYDOWN){
+				switch (e.key.keysym.sym){
+					case SDLK_1:
+					case SDLK_KP_1:
+						useClip = 0;
+						break;
+					case SDLK_2:
+					case SDLK_KP_2:
+						useClip = 1;
+						break;
+					case SDLK_3:
+					case SDLK_KP_3:
+						useClip = 2;
+						break;
+					case SDLK_4:
+					case SDLK_KP_4:
+						useClip = 3;
+						break;
+					case SDLK_ESCAPE:
+						quit = true;
+						break;
+					default:
+						break;
+				}
 			}
 		}
+		//Rendering
 		SDL_RenderClear(renderer);
-		//We can draw our message as we do any other texture, since it's been
-		//rendered to a texture
-		renderTexture(image, renderer, x, y);
+		//Draw the image
+		renderTexture(image, renderer, x, y, &clips[useClip]);
+		//Update the screen
 		SDL_RenderPresent(renderer);
 	}
 	//Clean up
 	cleanup(image, renderer, window);
-	TTF_Quit();
+	IMG_Quit();
 	SDL_Quit();
 
 	return 0;
 }
-

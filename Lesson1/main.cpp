@@ -1,5 +1,5 @@
 #include <iostream>
-#include <SDL.h>
+#include <SDL2/SDL.h>
 #include "res_path.h"
 
 /*
@@ -35,7 +35,7 @@ int main(int, char**){
 
 	//SDL 2.0 now uses textures to draw things but SDL_LoadBMP returns a surface
 	//this lets us choose when to upload or remove textures from the GPU
-	std::string imagePath = getResourcePath("Lesson1") + "hello.bmp";
+	std::string imagePath =  "hello.bmp";
 	SDL_Surface *bmp = SDL_LoadBMP(imagePath.c_str());
 	if (bmp == nullptr){
 		SDL_DestroyRenderer(ren);
